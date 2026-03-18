@@ -1,48 +1,47 @@
+import pandas as pd
 import numpy as np
+import time
 
-np.random.seed(42)
-n_samples = 200
+num_rows = 100_000_000
+print(f"Генерація датасету на {num_rows} рядків...")
 
-price = np.random.uniform(10, 100, n_samples)
-quantity = np.random.randint(1, 10, n_samples)
-discount = np.random.uniform(0, 0.3, n_samples)
+dates = pd.date_range("2000-01-01", periods=num_rows, freq="D")
+revenue = np.random.uniform(100, 5000, num_rows)
 
-noise = np.random.normal(0, 5, n_samples)
-total = 10 + 2 * price + 15 * quantity - 30 * discount + noise
+df = pd.DataFrame({
+    "date": dates,
+    "revenue": revenue
+})
 
-def fit_linear_regression(X, y):
-    X_b = np.c_[np.ones((len(X), 1)), X]
+window = 7
 
-    theta = np.linalg.inv(X_b.T.dot(X_b)).dot(X_b.T).dot(y)
-    return theta, X_b
+print("\nОбчислення через Pandas...")
+start_time = time.time()
+df['rolling_mean_pd'] = df['revenue'].rolling(window=window).mean()
+pandas_time = time.time() - start_time
+print(f"Час виконання Pandas: {pandas_time:.4f} секунд")
 
+print("\nОбчислення через NumPy (cumsum)...")
+start_time = time.time()
 
-def mean_squared_error(y_true, y_pred):
-    return np.mean((y_true - y_pred) ** 2)
+arr = df['revenue'].values
 
+cumsum_arr = np.cumsum(arr, dtype=float)
 
-X_multi = np.c_[price, quantity, discount]
-theta_multi, X_b_multi = fit_linear_regression(X_multi, total)
+cumsum_arr[window:] = cumsum_arr[window:] - cumsum_arr[:-window]
 
-total_pred_multi = X_b_multi.dot(theta_multi)
-mse_multi = mean_squared_error(total, total_pred_multi)
+numpy_rolling_mean = cumsum_arr[window - 1:] / window
 
-print("Модель 1: total ~ price + quantity + discount")
-print(f"Коефіцієнти (b0, price, quantity, discount): {theta_multi.round(2)}")
-print(f"MSE (Множинна регресія): {mse_multi:.2f}\n")
+numpy_result_full = np.empty_like(arr)
+numpy_result_full[:] = np.nan
+numpy_result_full[window - 1:] = numpy_rolling_mean
 
-X_simple = price.reshape(-1, 1)
-theta_simple, X_b_simple = fit_linear_regression(X_simple, total)
+df['rolling_mean_np'] = numpy_result_full
+numpy_time = time.time() - start_time
+print(f"Час виконання NumPy: {numpy_time:.4f} секунд")
 
-total_pred_simple = X_b_simple.dot(theta_simple)
-mse_simple = mean_squared_error(total, total_pred_simple)
+valid_pd = df['rolling_mean_pd'].dropna().values
+valid_np = df['rolling_mean_np'][window - 1:]
 
-print("Модель 2: total ~ price")
-print(f"Коефіцієнти (b0, price): {theta_simple.round(2)}")
-print(f"MSE (Проста регресія): {mse_simple:.2f}\n")
-
-print("Висновок")
-if mse_multi < mse_simple:
-    print(f"Множинна модель краща. Помилка зменшилась на {mse_simple - mse_multi:.2f}")
-else:
-    print("Проста модель показала кращий або однаковий результат.")
+max_difference = np.max(np.abs(valid_pd - valid_np))
+print(f"\nМаксимальна абсолютна різниця між методами: {max_difference}")
